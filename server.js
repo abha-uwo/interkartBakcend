@@ -58,8 +58,8 @@ async function sendWhatsAppMessage(phoneNumber, message) {
         const response = await axios.post(
             `${INTERAKT_BASE_URL}/message/`,
             {
-                countryCode: '+91', // Defaulting to India, can be parsed from incoming
-                phoneNumber: phoneNumber.replace(/^\+91/, ''), // Clean up +91 if present
+                countryCode: '+91',
+                phoneNumber: phoneNumber.replace(/^\+91/, ''),
                 type: 'Text',
                 data: {
                     message: message
@@ -81,29 +81,53 @@ async function sendWhatsAppMessage(phoneNumber, message) {
 
 // Webhook endpoint to receive messages from Interakt
 app.post('/webhook/interakt', async (req, res) => {
-    console.log('Received Webhook:', JSON.stringify(req.body, null, 2));
+    console.log('=== WEBHOOK RECEIVED ===');
+    console.log(JSON.stringify(req.body, null, 2));
 
     try {
-        const { type, data } = req.body;
+        const body = req.body;
+        const data = body.data || body;
 
-        // Ensure this is an incoming message
-        if (type === 'message_received' && data && data.message) {
-            const incomingMessage = data.message.text ? data.message.text : '';
-            const senderPhone = data.customer ? data.customer.phone_number : null;
+        let incomingMessage = '';
+        let senderPhone = '';
+        let isCustomerMessage = false;
 
-            if (senderPhone && incomingMessage) {
-                console.log(`Incoming message from ${senderPhone}: ${incomingMessage}`);
+        // Check if this is a customer message (not a bot/agent sent message)
+        if (data.chat_message_type === 'CustomerMessage' || body.type === 'message_received') {
+            isCustomerMessage = true;
+        }
 
-                // Get AI-powered response from OpenAI
-                const replyText = await getAIResponse(incomingMessage);
-                console.log(`AI Reply: ${replyText}`);
-
-                // Send the reply
-                await sendWhatsAppMessage(senderPhone, replyText);
+        // Extract message text - Interakt puts text in data.message.message
+        if (data.message) {
+            if (typeof data.message === 'string') {
+                incomingMessage = data.message;
+            } else if (data.message.message) {
+                incomingMessage = data.message.message;
+            } else if (data.message.text) {
+                incomingMessage = data.message.text;
             }
         }
 
-        // Always respond with 200 OK to acknowledge receipt
+        // Extract sender phone number
+        if (data.customer && data.customer.phone_number) {
+            senderPhone = data.customer.phone_number;
+        }
+
+        console.log(`=== PARSED: isCustomer=${isCustomerMessage}, phone=${senderPhone}, msg="${incomingMessage}" ===`);
+
+        if (isCustomerMessage && senderPhone && incomingMessage) {
+            console.log(`Processing message from ${senderPhone}: ${incomingMessage}`);
+
+            // Get AI-powered response from OpenAI
+            const replyText = await getAIResponse(incomingMessage);
+            console.log(`AI Reply: ${replyText}`);
+
+            // Send the reply via Interakt
+            await sendWhatsAppMessage(senderPhone, replyText);
+        } else {
+            console.log('Skipped: Not a customer message or missing data.');
+        }
+
         res.status(200).send('Webhook processed');
     } catch (error) {
         console.error('Webhook processing error:', error);
@@ -111,10 +135,9 @@ app.post('/webhook/interakt', async (req, res) => {
     }
 });
 
-// API endpoint to update config from frontend (mocked for simplicity)
+// API endpoint to update config from frontend
 app.post('/api/config', (req, res) => {
     const { apiKey, autoReplyRules } = req.body;
-    // In a real app, you'd save this to a database
     console.log('Updated config:', req.body);
     res.json({ success: true, message: 'Configuration saved successfully!' });
 });
@@ -122,5 +145,5 @@ app.post('/api/config', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`Webhook URL for Interakt: http://<your_domain>/webhook/interakt`);
-    console.log(`OpenAI Integration: ${process.env.OPENAI_API_KEY ? 'ACTIVE ✅' : 'NOT CONFIGURED ❌'}`);
+    console.log(`OpenAI Integration: ${process.env.OPENAI_API_KEY ? 'ACTIVE' : 'NOT CONFIGURED'}`);
 });
