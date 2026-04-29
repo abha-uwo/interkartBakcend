@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
+const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,6 +15,42 @@ app.use(express.static(path.join(__dirname, '../frontend')));
 // Interakt API Configuration
 const INTERAKT_API_KEY = process.env.INTERAKT_API_KEY || 'your_interakt_api_key_here';
 const INTERAKT_BASE_URL = 'https://api.interakt.ai/v1/public';
+
+// OpenAI Configuration
+const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+});
+
+// Get AI response from OpenAI
+async function getAIResponse(userMessage) {
+    try {
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                {
+                    role: 'system',
+                    content: `You are a friendly and helpful WhatsApp business assistant. 
+Keep your replies concise (under 200 words) since this is WhatsApp. 
+Be polite, professional, and helpful. 
+Use emojis occasionally to keep things friendly. 
+If someone greets you, greet them back warmly.
+If you don't know something, politely say so and offer to connect them with a human agent.`
+                },
+                {
+                    role: 'user',
+                    content: userMessage
+                }
+            ],
+            max_tokens: 300,
+            temperature: 0.7
+        });
+
+        return completion.choices[0].message.content;
+    } catch (error) {
+        console.error('OpenAI Error:', error.message);
+        return 'Sorry, I am unable to process your request right now. Please try again later or type "AGENT" to connect with a human.';
+    }
+}
 
 // Helper function to send WhatsApp message via Interakt
 async function sendWhatsAppMessage(phoneNumber, message) {
@@ -51,20 +88,15 @@ app.post('/webhook/interakt', async (req, res) => {
 
         // Ensure this is an incoming message
         if (type === 'message_received' && data && data.message) {
-            const incomingMessage = data.message.text ? data.message.text.toLowerCase() : '';
+            const incomingMessage = data.message.text ? data.message.text : '';
             const senderPhone = data.customer ? data.customer.phone_number : null;
 
-            if (senderPhone) {
-                // Auto-reply logic
-                let replyText = 'Hello! Thank you for reaching out to us. We will get back to you shortly.';
-                
-                if (incomingMessage.includes('hello') || incomingMessage.includes('hi')) {
-                    replyText = 'Hi there! How can I assist you today?';
-                } else if (incomingMessage.includes('pricing')) {
-                    replyText = 'Our pricing starts at $9.99/month. Reply with "DETAILS" for more info.';
-                } else if (incomingMessage.includes('support')) {
-                    replyText = 'Please describe your issue, and our support team will review it.';
-                }
+            if (senderPhone && incomingMessage) {
+                console.log(`Incoming message from ${senderPhone}: ${incomingMessage}`);
+
+                // Get AI-powered response from OpenAI
+                const replyText = await getAIResponse(incomingMessage);
+                console.log(`AI Reply: ${replyText}`);
 
                 // Send the reply
                 await sendWhatsAppMessage(senderPhone, replyText);
@@ -90,4 +122,5 @@ app.post('/api/config', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`Webhook URL for Interakt: http://<your_domain>/webhook/interakt`);
+    console.log(`OpenAI Integration: ${process.env.OPENAI_API_KEY ? 'ACTIVE ✅' : 'NOT CONFIGURED ❌'}`);
 });
