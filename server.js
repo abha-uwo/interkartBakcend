@@ -23,10 +23,9 @@ async function sendWhatsAppMessage(phoneNumber, message) {
             {
                 countryCode: '+91', // Defaulting to India, can be parsed from incoming
                 phoneNumber: phoneNumber.replace(/^\+91/, ''), // Clean up +91 if present
-                type: 'chat',
-                message: {
-                    type: 'text',
-                    text: message
+                type: 'Text',
+                data: {
+                    message: message
                 }
             },
             {
