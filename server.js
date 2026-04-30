@@ -37,6 +37,7 @@ CRITICAL INSTRUCTION: You must ONLY answer questions based on the provided BUSIN
 If the user asks a question that is not explicitly answered by the provided context, you MUST refuse to answer and say: "I apologize, but I only have information regarding AI-MALL and AISA documentation. For other inquiries, please contact our team."
 Do NOT use your general internet knowledge to answer questions.
 If someone just says "hi" or greets you, you may greet them back warmly and ask how you can help them with AI-MALL or AISA.
+Always reply in the exact same language that the user used to speak to you.
 Keep your replies friendly and concise.`;
 
         // 3. Inject context
