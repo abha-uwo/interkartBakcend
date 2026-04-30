@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(express.static(path.join(__dirname, '../wabot-f')));
 
 // Interakt API Configuration
 const INTERAKT_API_KEY = process.env.INTERAKT_API_KEY || 'your_interakt_api_key_here';
@@ -21,20 +21,37 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
+// Initialize RAG system
+const SimpleRAG = require('./rag');
+const rag = new SimpleRAG(openai);
+
 // Get AI response from OpenAI
 async function getAIResponse(userMessage) {
     try {
+        // 1. Retrieve context from RAG
+        const context = await rag.search(userMessage);
+
+        // 2. Build the strict RAG system prompt
+        let systemPrompt = `You are an AI assistant for AI-MALL and AISA.
+CRITICAL INSTRUCTION: You must ONLY answer questions based on the provided BUSINESS CONTEXT below.
+If the user asks a question that is not explicitly answered by the provided context, you MUST refuse to answer and say: "I apologize, but I only have information regarding AI-MALL and AISA documentation. For other inquiries, please contact our team."
+Do NOT use your general internet knowledge to answer questions.
+If someone just says "hi" or greets you, you may greet them back warmly and ask how you can help them with AI-MALL or AISA.
+Keep your replies friendly and concise.`;
+
+        // 3. Inject context
+        if (context) {
+            systemPrompt += `\n\n--- BUSINESS CONTEXT ---\n${context}`;
+        } else {
+            systemPrompt += `\n\n--- BUSINESS CONTEXT ---\n[No relevant documentation found for this query.]`;
+        }
+
         const completion = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
                 {
                     role: 'system',
-                    content: `You are a friendly and helpful WhatsApp business assistant. 
-Keep your replies concise (under 200 words) since this is WhatsApp. 
-Be polite, professional, and helpful. 
-Use emojis occasionally to keep things friendly. 
-If someone greets you, greet them back warmly.
-If you don't know something, politely say so and offer to connect them with a human agent.`
+                    content: systemPrompt
                 },
                 {
                     role: 'user',
@@ -142,8 +159,13 @@ app.post('/api/config', (req, res) => {
     res.json({ success: true, message: 'Configuration saved successfully!' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`Server is running on http://localhost:${PORT}`);
     console.log(`Webhook URL for Interakt: http://<your_domain>/webhook/interakt`);
     console.log(`OpenAI Integration: ${process.env.OPENAI_API_KEY ? 'ACTIVE' : 'NOT CONFIGURED'}`);
+    
+    // Initialize RAG on startup
+    if (process.env.OPENAI_API_KEY) {
+        await rag.init();
+    }
 });
