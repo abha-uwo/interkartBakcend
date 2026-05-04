@@ -6,6 +6,7 @@ const path = require('path');
 const multer = require('multer');
 const cors = require('cors');
 const mongoose = require('mongoose');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,15 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => console.log('Connected to MongoDB'))
     .catch(err => console.error('MongoDB Connection Error:', err));
+
+// --- EMAIL TRANSPORTER ---
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
 
 // --- SCHEMAS & MODELS ---
 
@@ -62,30 +72,55 @@ const ChatSchema = new mongoose.Schema({
 });
 const Chat = mongoose.model('Chat', ChatSchema);
 
-// --- HELPERS ---
-
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const clientId = req.params.id;
-        const dir = path.join(__dirname, 'uploads', clientId);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        cb(null, dir);
-    },
-    filename: (req, file, cb) => {
-        cb(null, Date.now() + '-' + file.originalname);
-    }
-});
-const upload = multer({ storage });
+// Store temporary OTPs (In-memory for now)
+const tempOTPs = new Map();
 
 // --- AUTH API ---
 
+app.post('/api/auth/send-otp', async (req, res) => {
+    const { email } = req.body;
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    tempOTPs.set(email, otp);
+
+    const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Your Verification Code - Whatsabot',
+        text: `Your OTP for registration is: ${otp}. This code is valid for 10 minutes.`,
+        html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+                <h2 style="color: #6366f1;">Welcome to Whatsabot!</h2>
+                <p>Use the following code to complete your registration:</p>
+                <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; font-size: 24px; font-weight: bold; letter-spacing: 5px; text-align: center; margin: 20px 0;">
+                    ${otp}
+                </div>
+                <p style="font-size: 0.875rem; color: #666;">If you didn't request this, please ignore this email.</p>
+            </div>
+        `
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log(`OTP Sent to ${email}: ${otp}`);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Email Error:', err);
+        res.status(500).json({ error: 'Failed to send email. Check credentials.' });
+    }
+});
+
 app.post('/api/auth/register', async (req, res) => {
     const { name, email, password, otp } = req.body;
-    if (otp !== '123456') return res.status(400).json({ error: 'Invalid OTP' });
+    const savedOtp = tempOTPs.get(email);
+
+    if (!savedOtp || otp !== savedOtp) {
+        return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
 
     try {
         const client = new Client({ name, email, password });
         await client.save();
+        tempOTPs.delete(email); // Clear OTP after success
         res.json({ success: true });
     } catch (err) {
         res.status(400).json({ error: 'Email already exists' });
@@ -95,7 +130,6 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     
-    // Master Admin
     if (email === 'admin@uwo24.com' && password === 'Admin@24') {
         return res.json({ id: 'admin_id', name: 'Master Admin', role: 'admin' });
     }
@@ -249,7 +283,7 @@ app.delete('/api/support/tickets/:clientId', async (req, res) => {
     res.json({ success: true });
 });
 
-// --- AI & WHATSAPP LOGIC ---
+// --- AI LOGIC ---
 
 async function getAIResponse(clientId, message, rules) {
     try {
@@ -282,6 +316,7 @@ async function sendWhatsAppMessage(phone, text, apiKey) {
 
 // --- FILE UPLOADS ---
 
+const upload = multer({ storage });
 app.post('/api/client/:id/upload', upload.single('file'), async (req, res) => {
     const client = await Client.findById(req.params.id);
     if (!client) return res.status(404).json({ error: 'Client not found' });
