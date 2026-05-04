@@ -100,12 +100,13 @@ app.post('/api/auth/send-otp', async (req, res) => {
     };
 
     try {
+        console.log(`Attempting to send OTP to ${email}...`);
         await transporter.sendMail(mailOptions);
-        console.log(`OTP Sent to ${email}: ${otp}`);
+        console.log(`✅ OTP successfully sent to ${email}`);
         res.json({ success: true });
     } catch (err) {
-        console.error('Email Error:', err);
-        res.status(500).json({ error: 'Failed to send email. Check credentials.' });
+        console.error('❌ Email Sending Error:', err.message);
+        res.status(500).json({ error: 'Failed to send email. Check your EMAIL_USER and EMAIL_PASS on Render.' });
     }
 });
 
