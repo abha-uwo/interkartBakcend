@@ -22,10 +22,22 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // --- EMAIL TRANSPORTER ---
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
+    },
+    connectionTimeout: 10000 // 10 seconds timeout
+});
+
+// Verify transporter
+transporter.verify((error, success) => {
+    if (error) {
+        console.error('❌ Email Transporter Error:', error.message);
+    } else {
+        console.log('✅ Email Transporter is ready');
     }
 });
 
