@@ -316,6 +316,18 @@ async function sendWhatsAppMessage(phone, text, apiKey) {
 
 // --- FILE UPLOADS ---
 
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const clientId = req.params.id;
+        const dir = path.join(__dirname, 'uploads', clientId);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + '-' + file.originalname);
+    }
+});
+
 const upload = multer({ storage });
 app.post('/api/client/:id/upload', upload.single('file'), async (req, res) => {
     const client = await Client.findById(req.params.id);
