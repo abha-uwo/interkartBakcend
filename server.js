@@ -15,93 +15,62 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// --- MONGODB CONNECTION ---
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB Connection Error:', err));
+// --- ERROR HANDLING ---
+process.on('uncaughtException', (err) => {
+    console.error('💥 Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('exit', (code) => {
+    console.log(`👋 Process exited with code: ${code}`);
+});
+
+// Keep-alive to prevent premature exit
+setInterval(() => {}, 10000);
+
+const { Client, Ticket, Chat, OTP, isLocal } = require('./database');
 
 // --- EMAIL TRANSPORTER ---
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    family: 4, // Force IPv4
+    service: 'gmail', // Use 'service' shorthand for Gmail
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
     },
     tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
-    },
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 20000,
-    logger: true,
-    debug: true
+        rejectUnauthorized: false
+    }
 });
 
 // Verify transporter
 transporter.verify((error, success) => {
     if (error) {
-        console.error('❌ Email Transporter Error:', error.message);
+        console.error('❌ Email Transporter Error:', error);
+        console.log('--- TIPS FOR LIVE DEPLOYMENT ---');
+        console.log('1. Ensure EMAIL_USER and EMAIL_PASS are set in Render environment variables.');
+        console.log('2. If using Gmail, use an "App Password" not your regular password.');
+        console.log('3. Disable 2FA or use App Passwords if 2FA is on.');
     } else {
-        console.log('✅ Email Transporter is ready');
+        console.log('✅ Email Transporter is ready and connected');
     }
 });
 
-// --- SCHEMAS & MODELS ---
+// Models are now imported from ./database.js
 
-const ClientSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    role: { type: String, default: 'client' },
-    status: { type: String, default: 'pending' },
-    whatsappNumber: { type: String, default: '' },
-    apiKey: { type: String, default: '' },
-    logoUrl: { type: String, default: '' },
-    botEnabled: { type: Boolean, default: false },
-    autoReplyRules: { type: String, default: '' },
-    documents: [String],
-    createdAt: { type: Date, default: Date.now }
+// --- HEALTH CHECK ---
+app.get('/ping', (req, res) => {
+    res.json({ status: 'Alive', mode: isLocal ? 'Local (JSON)' : 'Live (MongoDB)' });
 });
-const Client = mongoose.model('Client', ClientSchema);
-
-const TicketSchema = new mongoose.Schema({
-    clientId: String,
-    clientName: String,
-    status: { type: String, default: 'open' },
-    messages: [{
-        sender: String,
-        text: String,
-        timestamp: { type: Date, default: Date.now }
-    }],
-    lastUpdate: { type: Date, default: Date.now }
-});
-const Ticket = mongoose.model('Ticket', TicketSchema);
-
-const ChatSchema = new mongoose.Schema({
-    clientId: String,
-    customerPhone: String,
-    messages: [{
-        sender: String,
-        text: String,
-        timestamp: { type: Date, default: Date.now }
-    }],
-    lastUpdate: { type: Date, default: Date.now }
-});
-const Chat = mongoose.model('Chat', ChatSchema);
-
-// Store temporary OTPs (In-memory for now)
-const tempOTPs = new Map();
 
 // --- AUTH API ---
 
 app.post('/api/auth/send-otp', async (req, res) => {
     const { email } = req.body;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    tempOTPs.set(email, otp);
+    
+    // Save OTP to MongoDB (Upsert)
+    await OTP.findOneAndUpdate({ email }, { otp, createdAt: new Date() }, { upsert: true });
 
     const mailOptions = {
         from: process.env.EMAIL_USER,
@@ -121,28 +90,41 @@ app.post('/api/auth/send-otp', async (req, res) => {
     };
 
     try {
-        console.log(`Attempting to send OTP to ${email}...`);
+        console.log(`📩 Received OTP request for: ${email}`);
+        
+        if (isLocal) {
+            console.log(`\n-----------------------------------------`);
+            console.log(`[LOCAL MODE] OTP for ${email} is: ${otp}`);
+            console.log(`-----------------------------------------\n`);
+            return res.json({ success: true, message: 'OTP logged to console (Local Mode)' });
+        }
+
+        console.log(`Attempting to send OTP via email to ${email}...`);
         await transporter.sendMail(mailOptions);
         console.log(`✅ OTP successfully sent to ${email}`);
         res.json({ success: true });
     } catch (err) {
-        console.error('❌ Email Sending Error:', err.message);
-        res.status(500).json({ error: 'Failed to send email. Check your EMAIL_USER and EMAIL_PASS on Render.' });
+        console.error('❌ Error in /api/auth/send-otp:', err);
+        res.status(500).json({ 
+            error: 'Failed to send email.', 
+            details: err.message,
+            suggestion: 'Check your EMAIL_USER and EMAIL_PASS. Ensure you are using an App Password.' 
+        });
     }
 });
 
 app.post('/api/auth/register', async (req, res) => {
     const { name, email, password, otp } = req.body;
-    const savedOtp = tempOTPs.get(email);
+    const otpDoc = await OTP.findOne({ email, otp });
 
-    if (!savedOtp || otp !== savedOtp) {
+    if (!otpDoc) {
         return res.status(400).json({ error: 'Invalid or expired OTP' });
     }
 
     try {
-        const client = new Client({ name, email, password });
+        const client = isLocal ? Client.new({ name, email, password }) : new Client({ name, email, password });
         await client.save();
-        tempOTPs.delete(email); // Clear OTP after success
+        await OTP.deleteOne({ email }); // Clear OTP after success
         res.json({ success: true });
     } catch (err) {
         res.status(400).json({ error: 'Email already exists' });
@@ -210,7 +192,8 @@ app.get('/api/client/:id/chats', async (req, res) => {
 async function saveChatMessage(clientId, customerPhone, sender, text) {
     let chat = await Chat.findOne({ clientId, customerPhone });
     if (!chat) {
-        chat = new Chat({ clientId, customerPhone, messages: [] });
+        const chatData = { clientId, customerPhone, messages: [], lastUpdate: Date.now() };
+        chat = isLocal ? Chat.new(chatData) : new Chat(chatData);
     }
     chat.messages.push({ sender, text });
     chat.lastUpdate = Date.now();
@@ -245,17 +228,52 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
 
 // --- ADMIN API ---
 
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        const clients = await Client.find();
+        const tickets = await Ticket.find({ status: 'open' });
+        
+        const totalClients = clients.length;
+        const totalDocs = clients.reduce((sum, c) => sum + (c.documents ? c.documents.length : 0), 0);
+        const pendingApprovals = clients.filter(c => c.status === 'pending').length;
+        const approvedClients = clients.filter(c => c.status === 'approved').length;
+
+        res.json({
+            totalClients,
+            totalDocs,
+            pendingApprovals,
+            approvedClients
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch stats' });
+    }
+});
+
 app.get('/api/admin/clients', async (req, res) => {
     const clients = await Client.find();
     res.json(clients.map(c => ({
         id: c._id,
         name: c.name,
         email: c.email,
+        username: c.email, // Use email as username for display
         status: c.status,
         whatsappNumber: c.whatsappNumber,
-        documentCount: c.documents.length,
-        createdAt: c.createdAt
+        documentCount: c.documents ? c.documents.length : 0,
+        createdAt: c.createdAt,
+        logoUrl: c.logoUrl,
+        isBotActive: c.botEnabled
     })));
+});
+
+app.post('/api/admin/clients/create', async (req, res) => {
+    const { name, email, password } = req.body;
+    try {
+        const client = isLocal ? Client.new({ name, email, password, status: 'approved' }) : new Client({ name, email, password, status: 'approved' });
+        await client.save();
+        res.json({ success: true });
+    } catch (err) {
+        res.status(400).json({ error: 'Email already exists or invalid data' });
+    }
 });
 
 app.post('/api/admin/clients/:id/approve', async (req, res) => {
@@ -274,7 +292,8 @@ app.post('/api/support/send', async (req, res) => {
     const { clientId, clientName, message } = req.body;
     let ticket = await Ticket.findOne({ clientId, status: 'open' });
     if (!ticket) {
-        ticket = new Ticket({ clientId, clientName, messages: [] });
+        const ticketData = { clientId, clientName, messages: [], lastUpdate: Date.now() };
+        ticket = isLocal ? Ticket.new(ticketData) : new Ticket(ticketData);
     }
     ticket.messages.push({ sender: 'client', text: message });
     ticket.lastUpdate = Date.now();
@@ -285,6 +304,23 @@ app.post('/api/support/send', async (req, res) => {
 app.get('/api/admin/support/tickets', async (req, res) => {
     const tickets = await Ticket.find({ status: 'open' });
     res.json(tickets);
+});
+
+app.post('/api/admin/support/reply', async (req, res) => {
+    const { ticketId, message } = req.body;
+    try {
+        const ticket = await Ticket.findById(ticketId);
+        if (ticket) {
+            ticket.messages.push({ sender: 'admin', text: message });
+            ticket.lastUpdate = Date.now();
+            await ticket.save();
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ error: 'Ticket not found' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
 app.post('/api/support/reply', async (req, res) => {
