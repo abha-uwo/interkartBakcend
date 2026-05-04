@@ -24,5 +24,18 @@
     "botEnabled": false,
     "logoUrl": "",
     "createdAt": "2026-05-02T11:50:42.852Z"
+  },
+  {
+    "id": "cli_38tkw8sv0",
+    "name": "aditi",
+    "email": "aditi@uwo24.com",
+    "password": "123456",
+    "whatsappNumber": "",
+    "apiKey": "",
+    "autoReplyRules": [],
+    "status": "approved",
+    "botEnabled": false,
+    "logoUrl": "",
+    "createdAt": "2026-05-04T07:42:26.950Z"
   }
 ]
