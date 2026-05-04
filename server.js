@@ -27,6 +27,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 const CLIENTS_FILE = path.join(__dirname, 'clients.json');
 const TICKETS_FILE = path.join(__dirname, 'tickets.json');
+const CHATS_FILE = path.join(__dirname, 'chats.json');
 
 // Multer for file uploads
 const storage = multer.diskStorage({
@@ -80,6 +81,35 @@ const readTickets = () => {
 };
 const writeTickets = (tickets) => {
     fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
+};
+
+// Helper for chats
+const readChats = () => {
+    try {
+        if (!fs.existsSync(CHATS_FILE)) return {};
+        return JSON.parse(fs.readFileSync(CHATS_FILE, 'utf8'));
+    } catch (err) { return {}; }
+};
+const writeChats = (chats) => {
+    fs.writeFileSync(CHATS_FILE, JSON.stringify(chats, null, 2));
+};
+const saveChatMessage = (clientId, customerPhone, sender, text) => {
+    const chats = readChats();
+    if (!chats[clientId]) chats[clientId] = {};
+    if (!chats[clientId][customerPhone]) chats[clientId][customerPhone] = [];
+    
+    chats[clientId][customerPhone].push({
+        sender,
+        text,
+        timestamp: new Date().toISOString()
+    });
+    
+    // Keep only last 50 messages per customer to save space
+    if (chats[clientId][customerPhone].length > 50) {
+        chats[clientId][customerPhone].shift();
+    }
+    
+    writeChats(chats);
 };
 
 // --- SUPPORT API ---
@@ -440,6 +470,12 @@ app.post('/api/client/:id/config', (req, res) => {
     res.json({ success: true, message: 'Settings saved!' });
 });
 
+app.get('/api/client/:id/chats', (req, res) => {
+    const { id } = req.params;
+    const chats = readChats();
+    res.json(chats[id] || {});
+});
+
 app.post('/api/client/:id/toggle-bot', (req, res) => {
     const { enabled } = req.body;
     const clients = readClients();
@@ -544,7 +580,14 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
             if (data.customer && data.customer.phone_number) senderPhone = data.customer.phone_number;
 
             if (senderPhone && incomingMessage) {
+                // Save incoming message
+                saveChatMessage(clientId, senderPhone, 'customer', incomingMessage);
+
                 const replyText = await getAIResponse(clientId, incomingMessage, client.autoReplyRules);
+                
+                // Save bot reply
+                saveChatMessage(clientId, senderPhone, 'bot', replyText);
+                
                 await sendWhatsAppMessage(senderPhone, replyText, client.apiKey);
             }
         }
