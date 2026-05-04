@@ -166,6 +166,20 @@ app.post('/api/admin/support/reply', (req, res) => {
     res.json({ success: true });
 });
 
+app.delete('/api/support/tickets/:clientId', (req, res) => {
+    const { clientId } = req.params;
+    let tickets = readTickets();
+    const initialLength = tickets.length;
+    tickets = tickets.filter(t => t.clientId !== clientId);
+    
+    if (tickets.length < initialLength) {
+        writeTickets(tickets);
+        res.json({ success: true, message: 'Ticket deleted' });
+    } else {
+        res.status(404).json({ error: 'Ticket not found' });
+    }
+});
+
 app.get('/api/client/:id/support', (req, res) => {
     const tickets = readTickets();
     const ticket = tickets.find(t => t.clientId === req.params.id && t.status === 'open');
