@@ -1,58 +1,102 @@
 const fs = require('fs');
 const path = require('path');
+const mammoth = require('mammoth');
+const pdf = require('pdf-parse');
+const WordExtractor = require("word-extractor");
+const extractor = new WordExtractor();
 
 class SimpleRAG {
     constructor(openai) {
         this.openai = openai;
-        this.chunks = []; // Store { text: string, embedding: number[] }
-        this.kbPath = path.join(__dirname, 'knowledge_base');
+        this.clientChunks = {}; // Store { clientId: [{ text: string, embedding: number[] }] }
+        this.baseKbPath = path.join(__dirname, 'knowledge_base');
     }
 
-    // Initialize and load knowledge base
+    // Initialize and load knowledge base for all clients
     async init() {
-        if (!fs.existsSync(this.kbPath)) {
-            fs.mkdirSync(this.kbPath);
-            console.log(`[RAG] Created knowledge_base directory at ${this.kbPath}`);
+        if (!fs.existsSync(this.baseKbPath)) {
+            fs.mkdirSync(this.baseKbPath);
         }
 
-        const files = fs.readdirSync(this.kbPath).filter(f => f.endsWith('.txt'));
-        if (files.length === 0) {
-            console.log('[RAG] No .txt files found in knowledge_base directory. Add some to enable RAG!');
-            return;
-        }
-
-        console.log(`[RAG] Found ${files.length} files in knowledge_base. Processing...`);
+        const clientFolders = fs.readdirSync(this.baseKbPath).filter(f => fs.lstatSync(path.join(this.baseKbPath, f)).isDirectory());
         
+        for (const clientId of clientFolders) {
+            await this.loadClientKnowledge(clientId);
+        }
+        
+        console.log(`[RAG] Initialized for ${Object.keys(this.clientChunks).length} clients.`);
+    }
+
+    async extractTextFromFile(filePath) {
+        const ext = path.extname(filePath).toLowerCase();
+        try {
+            if (ext === '.txt') {
+                return fs.readFileSync(filePath, 'utf-8');
+            } else if (ext === '.docx') {
+                const result = await mammoth.extractRawText({ path: filePath });
+                return result.value;
+            } else if (ext === '.pdf') {
+                const dataBuffer = fs.readFileSync(filePath);
+                const data = await pdf(dataBuffer);
+                return data.text;
+            } else if (ext === '.doc') {
+                const doc = await extractor.extract(filePath);
+                return doc.getBody();
+            }
+        } catch (error) {
+            console.error(`[RAG] Error extracting text from ${filePath}:`, error.message);
+        }
+        return '';
+    }
+
+    async loadClientKnowledge(clientId) {
+        const clientPath = path.join(this.baseKbPath, clientId);
+        if (!fs.existsSync(clientPath)) {
+            fs.mkdirSync(clientPath, { recursive: true });
+        }
+
+        const supportedExts = ['.txt', '.docx', '.pdf', '.doc'];
+        const files = fs.readdirSync(clientPath).filter(f => supportedExts.includes(path.extname(f).toLowerCase()));
+        this.clientChunks[clientId] = [];
+
         let allText = '';
         for (const file of files) {
-            const content = fs.readFileSync(path.join(this.kbPath, file), 'utf-8');
+            const content = await this.extractTextFromFile(path.join(clientPath, file));
             allText += content + '\n\n';
         }
 
-        // Simple chunking (split by double newlines or chunks of ~500 chars)
-        const rawChunks = this.chunkText(allText, 500);
-        console.log(`[RAG] Created ${rawChunks.length} text chunks. Generating embeddings...`);
+        if (allText.trim().length === 0) return;
 
-        // Generate embeddings for all chunks
+        const rawChunks = this.chunkText(allText, 500);
+        
         for (const chunk of rawChunks) {
             if (chunk.trim().length === 0) continue;
             try {
                 const embedding = await this.getEmbedding(chunk);
-                this.chunks.push({ text: chunk, embedding });
+                this.clientChunks[clientId].push({ text: chunk, embedding });
             } catch (err) {
-                console.error("[RAG] Error generating embedding for chunk:", err.message);
+                console.error(`[RAG] Error generating embedding for client ${clientId}:`, err.message);
             }
         }
-        
-        console.log(`[RAG] Initialized successfully with ${this.chunks.length} vectorized chunks.`);
     }
 
     chunkText(text, maxChars) {
+        // First split by double newlines (paragraphs)
         const paragraphs = text.split('\n\n');
         let chunks = [];
         let currentChunk = '';
 
         for (const p of paragraphs) {
+            // If a single paragraph is larger than maxChars, break it down further
+            if (p.length > maxChars) {
+                if (currentChunk.trim()) chunks.push(currentChunk.trim());
+                currentChunk = '';
+                
+                const subChunks = p.match(new RegExp(`[\\s\\S]{1,${maxChars}}`, 'g')) || [];
+                chunks = chunks.concat(subChunks);
+                continue;
+            }
+
             if ((currentChunk.length + p.length) < maxChars) {
                 currentChunk += p + '\n\n';
             } else {
@@ -84,27 +128,48 @@ class SimpleRAG {
         return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
-    async search(query, topK = 3) {
-        if (this.chunks.length === 0) return ''; // No data
+    async search(clientId, query, topK = 3) {
+        const chunks = this.clientChunks[clientId];
+        if (!chunks || chunks.length === 0) return '';
 
         try {
             const queryEmbedding = await this.getEmbedding(query);
-            
-            // Calculate similarity for all chunks
-            const results = this.chunks.map(chunk => ({
+            const results = chunks.map(chunk => ({
                 text: chunk.text,
                 similarity: this.cosineSimilarity(queryEmbedding, chunk.embedding)
             }));
 
-            // Sort by highest similarity
             results.sort((a, b) => b.similarity - a.similarity);
-
-            // Return top K chunks combined
             return results.slice(0, topK).map(r => r.text).join('\n\n---\n\n');
         } catch (error) {
-            console.error("[RAG] Search error:", error.message);
+            console.error(`[RAG] Search error for client ${clientId}:`, error.message);
             return '';
         }
+    }
+
+    // Add a file and re-index for a client
+    async addFile(clientId, filename, content) {
+        const clientPath = path.join(this.baseKbPath, clientId);
+        if (!fs.existsSync(clientPath)) fs.mkdirSync(clientPath, { recursive: true });
+        
+        fs.writeFileSync(path.join(clientPath, filename), content);
+        await this.loadClientKnowledge(clientId);
+    }
+
+    // Delete a file and re-index for a client
+    async deleteFile(clientId, filename) {
+        const filePath = path.join(this.baseKbPath, clientId, filename);
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            await this.loadClientKnowledge(clientId);
+        }
+    }
+
+    getClientFiles(clientId) {
+        const clientPath = path.join(this.baseKbPath, clientId);
+        if (!fs.existsSync(clientPath)) return [];
+        const supportedExts = ['.txt', '.docx', '.pdf', '.doc'];
+        return fs.readdirSync(clientPath).filter(f => supportedExts.includes(path.extname(f).toLowerCase()));
     }
 }
 

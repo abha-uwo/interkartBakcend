@@ -1,0 +1,21 @@
+[
+  {
+    "id": "t_38nbfgfg4",
+    "clientId": "cli_xa76mf4sa",
+    "clientName": "Abha Jatav",
+    "status": "open",
+    "messages": [
+      {
+        "sender": "client",
+        "text": "hy",
+        "timestamp": "2026-05-02T11:03:28.874Z"
+      },
+      {
+        "sender": "admin",
+        "text": "hyy",
+        "timestamp": "2026-05-02T11:03:36.982Z"
+      }
+    ],
+    "lastUpdate": "2026-05-02T11:03:36.982Z"
+  }
+]

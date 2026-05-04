@@ -1,1 +1,28 @@
-[]
+[
+  {
+    "id": "cli_xa76mf4sa",
+    "name": "Abha Jatav",
+    "email": "abha@uwo24.com",
+    "password": "123456",
+    "whatsappNumber": "8359890909",
+    "apiKey": "Z1kxTEhYTkdFYkVGZTlLc2dJRXlxRzN5SFhadDhDR1Z3NU9oX2xZWlZlSTo=",
+    "autoReplyRules": [],
+    "status": "approved",
+    "botEnabled": false,
+    "logoUrl": "",
+    "createdAt": "2026-05-02T10:02:57.868Z"
+  },
+  {
+    "id": "cli_upz9hrc1l",
+    "name": "abha",
+    "email": "aditilakhera0@gmail.com",
+    "password": "123456789",
+    "whatsappNumber": "",
+    "apiKey": "",
+    "autoReplyRules": [],
+    "status": "approved",
+    "botEnabled": false,
+    "logoUrl": "",
+    "createdAt": "2026-05-02T11:50:42.852Z"
+  }
+]
