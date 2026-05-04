@@ -1,8 +1,8 @@
 [
   {
-    "id": "cli_xa76mf4sa",
-    "name": "Abha Jatav",
-    "email": "abha@uwo24.com",
+    "id": "cli_idj16ddne",
+    "name": "yug",
+    "email": "aditi@uwo24.com",
     "password": "123456",
     "whatsappNumber": "8359890909",
     "apiKey": "Z1kxTEhYTkdFYkVGZTlLc2dJRXlxRzN5SFhadDhDR1Z3NU9oX2xZWlZlSTo=",
@@ -10,32 +10,6 @@
     "status": "approved",
     "botEnabled": false,
     "logoUrl": "",
-    "createdAt": "2026-05-02T10:02:57.868Z"
-  },
-  {
-    "id": "cli_upz9hrc1l",
-    "name": "abha",
-    "email": "aditilakhera0@gmail.com",
-    "password": "123456789",
-    "whatsappNumber": "",
-    "apiKey": "",
-    "autoReplyRules": [],
-    "status": "approved",
-    "botEnabled": false,
-    "logoUrl": "",
-    "createdAt": "2026-05-02T11:50:42.852Z"
-  },
-  {
-    "id": "cli_38tkw8sv0",
-    "name": "aditi",
-    "email": "aditi@uwo24.com",
-    "password": "123456",
-    "whatsappNumber": "",
-    "apiKey": "",
-    "autoReplyRules": [],
-    "status": "approved",
-    "botEnabled": false,
-    "logoUrl": "",
-    "createdAt": "2026-05-04T07:42:26.950Z"
+    "createdAt": "2026-05-04T10:46:21.256Z"
   }
 ]
