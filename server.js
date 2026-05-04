@@ -25,6 +25,7 @@ const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
     secure: false,
+    family: 4, // Force IPv4
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
@@ -33,11 +34,11 @@ const transporter = nodemailer.createTransport({
         rejectUnauthorized: false,
         minVersion: 'TLSv1.2'
     },
-    connectionTimeout: 20000, // Increase to 20s
+    connectionTimeout: 20000,
     greetingTimeout: 20000,
     socketTimeout: 20000,
-    logger: true, // Enable logging
-    debug: true   // Enable debug output
+    logger: true,
+    debug: true
 });
 
 // Verify transporter
