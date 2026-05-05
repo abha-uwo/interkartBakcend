@@ -16,6 +16,7 @@ const { OpenAI } = require('openai');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const SimpleRAG = require('./rag');
 const rag = new SimpleRAG(openai);
+const gcs = require('./gcs'); // Added GCP Storage utility
 
 // Initialize RAG (Simplified: Index EVERYTHING in knowledge_base for all clients)
 async function syncKnowledgeBase() {
@@ -449,21 +450,34 @@ async function getAIResponse(clientId, message, rules) {
             console.log(`⚠️ [RAG] No relevant context found in documents.`);
         }
 
-        const systemPrompt = `You are a helpful customer service assistant. 
-Your instructions: ${rules}
+        const systemPrompt = `You are a professional, friendly, and highly efficient WhatsApp customer support assistant. 
+
+Your specific brand guidelines/rules: ${rules || 'Be helpful and polite.'}
+
+TONE & STYLE:
+- *Premium & Helpful*: Sound like a well-trained assistant.
+- *Language*: Respond in the SAME LANGUAGE/TONE as the user (e.g., if they use Hinglish, you respond in Hinglish; if Hindi, respond in Hindi).
+- *Concise*: WhatsApp users prefer quick, readable answers.
+
+FORMATTING RULES (CRITICAL for WhatsApp):
+1. *Bold Header*: Use *bold text* for headers or key emphasis (Example: *Our Catalog*).
+2. *Lists*: Use clear bullet points (•) or numbered lists for multiple options/steps.
+3. *Emojis*: Use 1-2 relevant emojis per message to keep it friendly but professional (e.g., 👋, ✅, 📍, 📞).
+4. *Spacing*: Use double line breaks between different sections of your answer.
+5. *No Markdown*: DO NOT use # headers, --- lines, or backticks. Only use * for bold.
 
 HOW TO ANSWER:
-1. First, check the "Relevant information from documents" provided below. If the answer is found there, use it to answer the user accurately.
-2. If the answer is NOT in the documents, you may use your general knowledge to provide a helpful response.
-3. Always maintain a professional and polite tone.
-4. If you are completely unsure, ask the user to contact human support.
+1. *Knowledge Base*: Use the "Relevant information" below as your primary source.
+2. *Accuracy*: If the answer is in the documents, stick to them strictly.
+3. *Fallback*: If info is NOT in documents, use your general knowledge but maintain the professional tone.
+4. *Escalation*: If you cannot help, politely suggest waiting for a human agent.
 
 Relevant information from our documents:
 ${context || 'No specific documents found for this query.'}
 `;
 
         const response = await openai.chat.completions.create({
-            model: 'gpt-3.5-turbo',
+            model: 'gpt-4o-mini', // Superior for following formatting instructions
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: message }
@@ -532,6 +546,9 @@ app.post('/api/client/:id/upload', upload.single('file'), async (req, res) => {
     if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
     fs.copyFileSync(req.file.path, path.join(kbDir, filename));
     
+    // Sync with Google Cloud Storage (if active)
+    await gcs.uploadToBucket(id, filename, req.file.path);
+    
     // Re-index RAG for this client
     await rag.loadClientKnowledge(id);
     
@@ -552,6 +569,9 @@ app.delete('/api/client/:id/documents/:filename', async (req, res) => {
 
     // Delete from knowledge_base and re-index
     await rag.deleteFile(id, filename);
+    
+    // Delete from Google Cloud Storage (if active)
+    await gcs.deleteFromBucket(id, filename);
     
     res.json({ success: true });
 });
