@@ -29,6 +29,7 @@ async function syncKnowledgeBase() {
     }
 
     const allFiles = fs.readdirSync(rootUploads).filter(f => fs.lstatSync(path.join(rootUploads, f)).isFile());
+    console.log(`📂 [RAG] Files found in uploads: ${JSON.stringify(allFiles)}`);
 
     for (const client of clients) {
         const clientId = client._id.toString();
