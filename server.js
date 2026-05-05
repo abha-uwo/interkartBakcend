@@ -18,27 +18,37 @@ const SimpleRAG = require('./rag');
 const rag = new SimpleRAG(openai);
 const gcs = require('./gcs'); // Added GCP Storage utility
 
-// Initialize RAG (Simplified: Index EVERYTHING in knowledge_base for all clients)
+// Initialize RAG (Sync from GCS and Index for all clients)
 async function syncKnowledgeBase() {
-    console.log('🔄 [RAG] Syncing ALL files from knowledge_base folder...');
+    console.log('🔄 [RAG] Syncing files from GCS and knowledge_base folder...');
     const clients = await Client.find({});
     const kbRoot = path.join(__dirname, 'knowledge_base');
 
-    if (!fs.existsSync(kbRoot)) {
-        console.log('⚠️ [RAG] knowledge_base folder not found.');
-        return;
-    }
+    if (!fs.existsSync(kbRoot)) fs.mkdirSync(kbRoot, { recursive: true });
 
     for (const client of clients) {
         const clientId = client._id.toString();
-        // Index files from knowledge_base/[clientId] AND root knowledge_base
-        await rag.loadClientKnowledge(clientId);
+        const clientKbDir = path.join(kbRoot, clientId);
+        if (!fs.existsSync(clientKbDir)) fs.mkdirSync(clientKbDir, { recursive: true });
+
+        // Sync from GCS to local if local files are missing
+        if (gcs.isGcsActive) {
+            try {
+                const cloudFiles = await gcs.listClientFiles(clientId);
+                for (const file of cloudFiles) {
+                    const localFilePath = path.join(clientKbDir, file);
+                    if (!fs.existsSync(localFilePath)) {
+                        await gcs.downloadFromBucket(clientId, file, localFilePath);
+                    }
+                }
+            } catch (err) {
+                console.error(`❌ [GCS] Sync failed for client ${clientId}:`, err.message);
+            }
+        }
         
-        // Also check if there are files in the root knowledge_base to sync
+        // Check if there are files in the root knowledge_base to sync to this client
         const rootFiles = fs.readdirSync(kbRoot).filter(f => fs.lstatSync(path.join(kbRoot, f)).isFile());
         for (const file of rootFiles) {
-            const clientKbDir = path.join(kbRoot, clientId);
-            if (!fs.existsSync(clientKbDir)) fs.mkdirSync(clientKbDir, { recursive: true });
             const dest = path.join(clientKbDir, file);
             if (!fs.existsSync(dest)) {
                 fs.copyFileSync(path.join(kbRoot, file), dest);
@@ -46,6 +56,8 @@ async function syncKnowledgeBase() {
             }
         }
     }
+    
+    // Now initialize RAG (it will load all files from local folders)
     await rag.init();
 }
 // Removed early call from here to fix ReferenceError
@@ -179,6 +191,13 @@ app.post('/api/auth/register', async (req, res) => {
         const client = isLocal ? Client.new({ name, email, password }) : new Client({ name, email, password });
         await client.save();
         await OTP.deleteOne({ email }); // Clear OTP after success
+
+        // Auto-initialize GCS folder for new client
+        if (gcs.isGcsActive) {
+            await gcs.uploadToBucket(client._id.toString(), '.keep', Buffer.from('folder initialization'));
+            console.log(`📂 [GCS] Initialized folder for new client: ${name}`);
+        }
+
         res.json({ success: true });
     } catch (err) {
         res.status(400).json({ error: 'Email already exists' });
@@ -361,6 +380,13 @@ app.post('/api/admin/clients/create', async (req, res) => {
     try {
         const client = isLocal ? Client.new({ name, email, password, status: 'approved' }) : new Client({ name, email, password, status: 'approved' });
         await client.save();
+
+        // Auto-initialize GCS folder for new client
+        if (gcs.isGcsActive) {
+            await gcs.uploadToBucket(client._id.toString(), '.keep', Buffer.from('folder initialization'));
+            console.log(`📂 [GCS] Initialized folder for admin-created client: ${name}`);
+        }
+
         res.json({ success: true });
     } catch (err) {
         res.status(400).json({ error: 'Email already exists or invalid data' });

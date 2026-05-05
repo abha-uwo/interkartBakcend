@@ -6,7 +6,7 @@ async function initializeBucketFolders() {
     console.log('🚀 Starting GCS Folder Initialization...');
     
     if (!gcs.isGcsActive) {
-        console.error('❌ GCP Storage is NOT active. Please add gcp-key.json first.');
+        console.error('❌ GCP Storage is NOT active. Please add gcp-key.json or run "gcloud auth application-default login".');
         process.exit(1);
     }
 

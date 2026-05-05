@@ -10,21 +10,24 @@ const keyFilePath = process.env.GCP_KEY_FILE_PATH; // JSON key file path (e.g., 
 let storage;
 let bucket;
 
+const storageOptions = { projectId };
 const fullKeyPath = keyFilePath ? path.join(__dirname, keyFilePath) : null;
 
 if (fullKeyPath && fs.existsSync(fullKeyPath)) {
-    try {
-        storage = new Storage({
-            projectId,
-            keyFilename: fullKeyPath,
-        });
-        bucket = storage.bucket(bucketName);
-        console.log(`☁️ [GCS] Storage initialized for bucket: ${bucketName}`);
-    } catch (err) {
-        console.error('❌ [GCS] Initialization Error:', err.message);
-    }
+    storageOptions.keyFilename = fullKeyPath;
+    console.log(`🔑 [GCS] Using key file: ${keyFilePath}`);
 } else {
-    console.log('⚠️ [GCS] GCP_KEY_FILE_PATH not found or file does not exist. GCS will not be active.');
+    console.log('🌐 [GCS] No key file found. Falling back to Application Default Credentials (ADC).');
+}
+
+try {
+    storage = new Storage(storageOptions);
+    bucket = storage.bucket(bucketName);
+    // Note: GCS initialization is lazy, so we don't know for sure if it's active until the first call.
+    // But we'll assume it's active if storage object is created.
+    console.log(`☁️ [GCS] Storage initialized for bucket: ${bucketName}`);
+} catch (err) {
+    console.error('❌ [GCS] Initialization Error:', err.message);
 }
 
 /**
@@ -75,8 +78,41 @@ async function deleteFromBucket(clientId, fileName) {
     }
 }
 
+/**
+ * Lists all files in a client's folder
+ */
+async function listClientFiles(clientId) {
+    if (!bucket) return [];
+    try {
+        const [files] = await bucket.getFiles({ prefix: `${clientId}/` });
+        return files.map(file => file.name.split('/').pop()).filter(name => name && name !== '.keep');
+    } catch (err) {
+        console.error(`❌ [GCS] List Error for ${clientId}:`, err.message);
+        return [];
+    }
+}
+
+/**
+ * Downloads a file from the bucket to a local path
+ */
+async function downloadFromBucket(clientId, fileName, localPath) {
+    if (!bucket) return;
+    try {
+        const remoteFilePath = `${clientId}/${fileName}`;
+        const dir = path.dirname(localPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        
+        await bucket.file(remoteFilePath).download({ destination: localPath });
+        console.log(`📥 [GCS] Downloaded: ${remoteFilePath} -> ${localPath}`);
+    } catch (err) {
+        console.error(`❌ [GCS] Download Error for ${fileName}:`, err.message);
+    }
+}
+
 module.exports = {
     uploadToBucket,
     deleteFromBucket,
+    listClientFiles,
+    downloadFromBucket,
     isGcsActive: !!bucket
 };
