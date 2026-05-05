@@ -219,12 +219,15 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
             return res.sendStatus(200);
         }
 
-        if (data && data.message && data.message.type === 'Text') {
-            const incomingMessage = data.message.textContent;
+        // Flexible check for Interakt payload format
+        const messageType = data.message_content_type || (data.message && data.message.type);
+        const incomingMessage = (typeof data.message === 'string' ? data.message : (data.message && data.message.textContent));
+
+        if (messageType === 'Text' && incomingMessage) {
             let senderPhone = null;
             if (data.customer && data.customer.phone_number) senderPhone = data.customer.phone_number;
 
-            if (senderPhone && incomingMessage) {
+            if (senderPhone) {
                 console.log(`💬 Message from ${senderPhone}: "${incomingMessage}"`);
                 
                 await saveChatMessage(clientId, senderPhone, 'customer', incomingMessage);
@@ -237,7 +240,9 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
                 await sendWhatsAppMessage(senderPhone, replyText, client.apiKey);
             }
         } else {
-            console.log('ℹ️ Webhook received but it is not a text message.');
+            console.log('ℹ️ Webhook received but it is not a text message or format is different.');
+            console.log('Detected Type:', messageType);
+            console.log('Detected Content:', incomingMessage);
         }
     } catch (err) { 
         console.error('💥 Webhook Error:', err); 
