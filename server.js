@@ -17,45 +17,30 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const SimpleRAG = require('./rag');
 const rag = new SimpleRAG(openai);
 
-// Initialize RAG (Scan existing files and sync with uploads)
+// Initialize RAG (Simplified: Index EVERYTHING in uploads for all clients)
 async function syncKnowledgeBase() {
-    console.log('🔄 Syncing knowledge base with uploads...');
+    console.log('🔄 [RAG] Syncing ALL files from uploads folder...');
     const clients = await Client.find({});
+    const rootUploads = path.join(__dirname, 'uploads');
+
+    if (!fs.existsSync(rootUploads)) {
+        console.log('⚠️ [RAG] Uploads folder not found.');
+        return;
+    }
+
+    const allFiles = fs.readdirSync(rootUploads).filter(f => fs.lstatSync(path.join(rootUploads, f)).isFile());
+
     for (const client of clients) {
         const clientId = client._id.toString();
-        const uploadDir = path.join(__dirname, 'uploads', clientId);
         const kbDir = path.join(__dirname, 'knowledge_base', clientId);
+        if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
 
-        if (fs.existsSync(uploadDir)) {
-            if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
-            
-            // 1. Sync from client-specific upload folder
-            const files = fs.readdirSync(uploadDir);
-            for (const file of files) {
-                const src = path.join(uploadDir, file);
-                const dest = path.join(kbDir, file);
-                if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
-            }
-
-            // 2. Also check root uploads folder for this client's documents (Handle name mismatches)
-            const rootUploads = path.join(__dirname, 'uploads');
-            if (fs.existsSync(rootUploads)) {
-                const allRootFiles = fs.readdirSync(rootUploads);
-                client.documents.forEach(dbDocName => {
-                    const dest = path.join(kbDir, dbDocName);
-                    if (fs.existsSync(dest)) return;
-
-                    // Find a file that matches the end of the DB filename (ignoring timestamp prefix)
-                    const cleanDbName = dbDocName.split('-').slice(1).join('-'); // Remove timestamp prefix
-                    const matchedFile = allRootFiles.find(f => f === dbDocName || f === cleanDbName || f.includes(cleanDbName));
-
-                    if (matchedFile) {
-                        const rootSrc = path.join(rootUploads, matchedFile);
-                        console.log(`✨ [RAG] Matching ${matchedFile} to ${dbDocName}. Syncing...`);
-                        fs.copyFileSync(rootSrc, dest);
-                    }
-                });
-            }
+        for (const file of allFiles) {
+            const src = path.join(rootUploads, file);
+            const dest = path.join(kbDir, file);
+            // Copy everything to each client's knowledge base
+            fs.copyFileSync(src, dest);
+            console.log(`✅ [RAG] Synced ${file} for client ${client.name}`);
         }
     }
     await rag.init();
