@@ -37,16 +37,25 @@ async function syncKnowledgeBase() {
                 if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
             }
 
-            // 2. Also check root uploads folder for this client's documents
+            // 2. Also check root uploads folder for this client's documents (Handle name mismatches)
             const rootUploads = path.join(__dirname, 'uploads');
-            client.documents.forEach(docName => {
-                const rootSrc = path.join(rootUploads, docName);
-                const dest = path.join(kbDir, docName);
-                if (fs.existsSync(rootSrc) && !fs.existsSync(dest)) {
-                    console.log(`✨ Found document ${docName} in root uploads. Syncing...`);
-                    fs.copyFileSync(rootSrc, dest);
-                }
-            });
+            if (fs.existsSync(rootUploads)) {
+                const allRootFiles = fs.readdirSync(rootUploads);
+                client.documents.forEach(dbDocName => {
+                    const dest = path.join(kbDir, dbDocName);
+                    if (fs.existsSync(dest)) return;
+
+                    // Find a file that matches the end of the DB filename (ignoring timestamp prefix)
+                    const cleanDbName = dbDocName.split('-').slice(1).join('-'); // Remove timestamp prefix
+                    const matchedFile = allRootFiles.find(f => f === dbDocName || f === cleanDbName || f.includes(cleanDbName));
+
+                    if (matchedFile) {
+                        const rootSrc = path.join(rootUploads, matchedFile);
+                        console.log(`✨ [RAG] Matching ${matchedFile} to ${dbDocName}. Syncing...`);
+                        fs.copyFileSync(rootSrc, dest);
+                    }
+                });
+            }
         }
     }
     await rag.init();
