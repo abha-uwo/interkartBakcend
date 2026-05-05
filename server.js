@@ -449,15 +449,17 @@ async function getAIResponse(clientId, message, rules) {
             console.log(`⚠️ [RAG] No relevant context found in documents.`);
         }
 
-        const systemPrompt = `You are a strict customer service assistant. 
+        const systemPrompt = `You are a helpful customer service assistant. 
 Your instructions: ${rules}
 
-STRICT RULE: Answer the user ONLY using the "Relevant information" provided below. 
-If the answer is not explicitly mentioned in the documents, politely say that you don't have that information and ask them to contact human support. 
-Do NOT use your own general knowledge or make things up.
+HOW TO ANSWER:
+1. First, check the "Relevant information from documents" provided below. If the answer is found there, use it to answer the user accurately.
+2. If the answer is NOT in the documents, you may use your general knowledge to provide a helpful response.
+3. Always maintain a professional and polite tone.
+4. If you are completely unsure, ask the user to contact human support.
 
 Relevant information from our documents:
-${context || 'No documents uploaded yet.'}
+${context || 'No specific documents found for this query.'}
 `;
 
         const response = await openai.chat.completions.create({
