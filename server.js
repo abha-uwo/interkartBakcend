@@ -401,8 +401,9 @@ async function sendWhatsAppMessage(phone, text, apiKey) {
         const response = await axios.post('https://api.interakt.ai/v1/public/message/', {
             fullPhoneNumber: phone,
             type: 'Text',
-            text: text,
-            data: {} // Satisfying the "data is required" error
+            data: {
+                message: text // Interakt requires 'message' field inside 'data'
+            }
         }, {
             headers: { 'Authorization': `Basic ${apiKey}` }
         });
