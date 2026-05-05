@@ -223,6 +223,13 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
             return res.sendStatus(200);
         }
 
+        // Check if message is from customer (ignore outgoing agent/bot messages)
+        const chatMessageType = data.chat_message_type || (data.message && data.message.chat_message_type);
+        if (chatMessageType && chatMessageType !== 'CustomerMessage') {
+            console.log(`🚫 Ignoring ${chatMessageType} to prevent infinite loop.`);
+            return res.sendStatus(200);
+        }
+
         if (!client.botEnabled) {
             console.log(`⏸️ Bot is disabled for client: ${client.name}`);
             return res.sendStatus(200);
