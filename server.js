@@ -301,6 +301,11 @@ app.post('/api/support/send', async (req, res) => {
     res.json({ success: true });
 });
 
+app.get('/api/client/:id/support', async (req, res) => {
+    const ticket = await Ticket.findOne({ clientId: req.params.id, status: 'open' });
+    res.json(ticket || { messages: [] });
+});
+
 app.get('/api/admin/support/tickets', async (req, res) => {
     const tickets = await Ticket.find({ status: 'open' });
     res.json(tickets);
