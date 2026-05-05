@@ -17,31 +17,32 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const SimpleRAG = require('./rag');
 const rag = new SimpleRAG(openai);
 
-// Initialize RAG (Simplified: Index EVERYTHING in uploads for all clients)
+// Initialize RAG (Simplified: Index EVERYTHING in knowledge_base for all clients)
 async function syncKnowledgeBase() {
-    console.log('🔄 [RAG] Syncing ALL files from uploads folder...');
+    console.log('🔄 [RAG] Syncing ALL files from knowledge_base folder...');
     const clients = await Client.find({});
-    const rootUploads = path.join(__dirname, 'uploads');
+    const kbRoot = path.join(__dirname, 'knowledge_base');
 
-    if (!fs.existsSync(rootUploads)) {
-        console.log('⚠️ [RAG] Uploads folder not found.');
+    if (!fs.existsSync(kbRoot)) {
+        console.log('⚠️ [RAG] knowledge_base folder not found.');
         return;
     }
 
-    const allFiles = fs.readdirSync(rootUploads).filter(f => fs.lstatSync(path.join(rootUploads, f)).isFile());
-    console.log(`📂 [RAG] Files found in uploads: ${JSON.stringify(allFiles)}`);
-
     for (const client of clients) {
         const clientId = client._id.toString();
-        const kbDir = path.join(__dirname, 'knowledge_base', clientId);
-        if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
-
-        for (const file of allFiles) {
-            const src = path.join(rootUploads, file);
-            const dest = path.join(kbDir, file);
-            // Copy everything to each client's knowledge base
-            fs.copyFileSync(src, dest);
-            console.log(`✅ [RAG] Synced ${file} for client ${client.name}`);
+        // Index files from knowledge_base/[clientId] AND root knowledge_base
+        await rag.loadClientKnowledge(clientId);
+        
+        // Also check if there are files in the root knowledge_base to sync
+        const rootFiles = fs.readdirSync(kbRoot).filter(f => fs.lstatSync(path.join(kbRoot, f)).isFile());
+        for (const file of rootFiles) {
+            const clientKbDir = path.join(kbRoot, clientId);
+            if (!fs.existsSync(clientKbDir)) fs.mkdirSync(clientKbDir, { recursive: true });
+            const dest = path.join(clientKbDir, file);
+            if (!fs.existsSync(dest)) {
+                fs.copyFileSync(path.join(kbRoot, file), dest);
+                console.log(`✅ [RAG] Synced root file ${file} for client ${client.name}`);
+            }
         }
     }
     await rag.init();
