@@ -47,7 +47,7 @@ async function syncKnowledgeBase() {
     }
     await rag.init();
 }
-syncKnowledgeBase();
+// Removed early call from here to fix ReferenceError
 
 app.use(cors({
     origin: '*', 
@@ -554,4 +554,8 @@ app.delete('/api/client/:id/documents/:filename', async (req, res) => {
     res.json({ success: true });
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    // Call sync after everything is initialized
+    syncKnowledgeBase();
+});
