@@ -225,7 +225,13 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
 
         if (messageType === 'Text' && incomingMessage) {
             let senderPhone = null;
-            if (data.customer && data.customer.phone_number) senderPhone = data.customer.phone_number;
+            if (data.customer) {
+                // Use channel_phone_number and ensure it has '+'
+                const rawPhone = data.customer.channel_phone_number || data.customer.phone_number;
+                if (rawPhone) {
+                    senderPhone = rawPhone.startsWith('+') ? rawPhone : '+' + rawPhone;
+                }
+            }
 
             if (senderPhone) {
                 console.log(`💬 Message from ${senderPhone}: "${incomingMessage}"`);
