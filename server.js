@@ -219,9 +219,9 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
             return res.sendStatus(200);
         }
 
-        // Flexible check for Interakt payload format
-        const messageType = data.message_content_type || (data.message && data.message.type);
-        const incomingMessage = (typeof data.message === 'string' ? data.message : (data.message && data.message.textContent));
+        // Deep check for Interakt payload format (handling nested fields found in logs)
+        const messageType = data.message_content_type || (data.message && (data.message.message_content_type || data.message.type));
+        const incomingMessage = (typeof data.message === 'string' ? data.message : (data.message && (data.message.message || data.message.textContent)));
 
         if (messageType === 'Text' && incomingMessage) {
             let senderPhone = null;
