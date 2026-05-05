@@ -393,11 +393,9 @@ async function sendWhatsAppMessage(phone, text, apiKey) {
     console.log(`📤 Attempting to send WhatsApp message to ${phone}...`);
     try {
         const response = await axios.post('https://api.interakt.ai/v1/public/message/', {
-            data: {
-                fullPhoneNumber: phone,
-                type: 'Text',
-                text: text
-            }
+            fullPhoneNumber: phone,
+            type: 'Text',
+            text: text
         }, {
             headers: { 'Authorization': `Basic ${apiKey}` }
         });
