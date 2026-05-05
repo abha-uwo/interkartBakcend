@@ -204,9 +204,20 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
     const { clientId } = req.params;
     const data = req.body.data;
     
+    console.log(`\n--- 📥 Incoming Webhook for Client: ${clientId} ---`);
+    console.log('Payload Data:', JSON.stringify(data, null, 2));
+
     try {
         const client = await Client.findById(clientId);
-        if (!client || !client.botEnabled) return res.sendStatus(200);
+        if (!client) {
+            console.log(`❌ Client ${clientId} not found in database.`);
+            return res.sendStatus(200);
+        }
+
+        if (!client.botEnabled) {
+            console.log(`⏸️ Bot is disabled for client: ${client.name}`);
+            return res.sendStatus(200);
+        }
 
         if (data && data.message && data.message.type === 'Text') {
             const incomingMessage = data.message.textContent;
@@ -214,15 +225,23 @@ app.post('/webhook/interakt/:clientId', async (req, res) => {
             if (data.customer && data.customer.phone_number) senderPhone = data.customer.phone_number;
 
             if (senderPhone && incomingMessage) {
+                console.log(`💬 Message from ${senderPhone}: "${incomingMessage}"`);
+                
                 await saveChatMessage(clientId, senderPhone, 'customer', incomingMessage);
                 
+                console.log(`🤖 Requesting AI response for: "${incomingMessage}"...`);
                 const replyText = await getAIResponse(clientId, incomingMessage, client.autoReplyRules);
+                console.log(`✨ AI Reply: "${replyText}"`);
                 
                 await saveChatMessage(clientId, senderPhone, 'bot', replyText);
                 await sendWhatsAppMessage(senderPhone, replyText, client.apiKey);
             }
+        } else {
+            console.log('ℹ️ Webhook received but it is not a text message.');
         }
-    } catch (err) { console.error('Webhook Error:', err); }
+    } catch (err) { 
+        console.error('💥 Webhook Error:', err); 
+    }
     res.sendStatus(200);
 });
 
@@ -366,15 +385,28 @@ async function getAIResponse(clientId, message, rules) {
 }
 
 async function sendWhatsAppMessage(phone, text, apiKey) {
+    console.log(`📤 Attempting to send WhatsApp message to ${phone}...`);
     try {
-        await axios.post('https://api.interakt.ai/v1/public/message/', {
+        const response = await axios.post('https://api.interakt.ai/v1/public/message/', {
             fullPhoneNumber: phone,
             type: 'Text',
             text: text
         }, {
             headers: { 'Authorization': `Basic ${apiKey}` }
         });
-    } catch (err) { console.error('Error sending WhatsApp:', err.response?.data || err.message); }
+        console.log(`✅ WhatsApp Message Sent! Interakt Response:`, response.data);
+    } catch (err) { 
+        console.error('❌ Error sending WhatsApp via Interakt:');
+        if (err.response) {
+            console.error('Status:', err.response.status);
+            console.error('Data:', JSON.stringify(err.response.data, null, 2));
+            if (err.response.status === 402) {
+                console.error('💡 TIP: This status code usually means Insufficient Balance in Interakt.');
+            }
+        } else {
+            console.error('Error Message:', err.message);
+        }
+    }
 }
 
 // --- FILE UPLOADS ---
