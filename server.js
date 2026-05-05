@@ -107,6 +107,17 @@ app.get('/ping', (req, res) => {
 
 // --- AUTH API ---
 
+app.get('/api/rag-status', (req, res) => {
+    const status = {
+        clients: Object.keys(rag.clientChunks).length,
+        details: {}
+    };
+    for (const id in rag.clientChunks) {
+        status.details[id] = rag.clientChunks[id].length + " chunks";
+    }
+    res.json(status);
+});
+
 app.post('/api/auth/send-otp', async (req, res) => {
     const { email } = req.body;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
