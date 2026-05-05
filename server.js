@@ -11,6 +11,15 @@ const nodemailer = require('nodemailer');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Initialize OpenAI and RAG
+const { OpenAI } = require('openai');
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const SimpleRAG = require('./rag');
+const rag = new SimpleRAG(openai);
+
+// Initialize RAG (Scan existing files)
+rag.init();
+
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -380,17 +389,33 @@ app.delete('/api/support/tickets/:clientId', async (req, res) => {
 
 async function getAIResponse(clientId, message, rules) {
     try {
-        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+        console.log(`🔍 [RAG] Searching knowledge base for Client: ${clientId}...`);
+        const context = await rag.search(clientId, message);
+        
+        if (context) {
+            console.log(`📄 [RAG] Found relevant context in documents.`);
+        } else {
+            console.log(`⚠️ [RAG] No relevant context found in documents.`);
+        }
+
+        const systemPrompt = `You are a helpful customer service bot. 
+Rules: ${rules}
+
+Relevant information from our documents:
+${context || 'No specific document context found.'}
+
+Use the information above to answer the user accurately. If the information is not in the documents, use your general knowledge but stay professional.`;
+
+        const response = await openai.chat.completions.create({
             model: 'gpt-3.5-turbo',
             messages: [
-                { role: 'system', content: `You are a helpful customer service bot. Rules: ${rules}` },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: message }
             ]
-        }, {
-            headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` }
         });
-        return response.data.choices[0].message.content;
+        return response.choices[0].message.content;
     } catch (err) {
+        console.error('❌ AI Response Error:', err.message);
         return "I am currently processing your request. Please wait.";
     }
 }
@@ -438,22 +463,40 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 app.post('/api/client/:id/upload', upload.single('file'), async (req, res) => {
-    const client = await Client.findById(req.params.id);
+    const { id } = req.params;
+    const client = await Client.findById(id);
     if (!client) return res.status(404).json({ error: 'Client not found' });
     
-    client.documents.push(req.file.filename);
+    const filename = req.file.filename;
+    client.documents.push(filename);
     await client.save();
+
+    // Sync with RAG: Copy file to knowledge_base directory
+    const kbDir = path.join(__dirname, 'knowledge_base', id);
+    if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
+    fs.copyFileSync(req.file.path, path.join(kbDir, filename));
+    
+    // Re-index RAG for this client
+    await rag.loadClientKnowledge(id);
+    
     res.json({ success: true });
 });
 
 app.delete('/api/client/:id/documents/:filename', async (req, res) => {
     const { id, filename } = req.params;
     const client = await Client.findById(id);
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+
     client.documents = client.documents.filter(d => d !== filename);
     await client.save();
     
-    const filePath = path.join(__dirname, 'uploads', id, filename);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    // Delete from uploads
+    const uploadPath = path.join(__dirname, 'uploads', id, filename);
+    if (fs.existsSync(uploadPath)) fs.unlinkSync(uploadPath);
+
+    // Delete from knowledge_base and re-index
+    await rag.deleteFile(id, filename);
+    
     res.json({ success: true });
 });
 
