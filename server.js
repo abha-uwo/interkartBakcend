@@ -17,8 +17,28 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const SimpleRAG = require('./rag');
 const rag = new SimpleRAG(openai);
 
-// Initialize RAG (Scan existing files)
-rag.init();
+// Initialize RAG (Scan existing files and sync with uploads)
+async function syncKnowledgeBase() {
+    console.log('🔄 Syncing knowledge base with uploads...');
+    const clients = await Client.find({});
+    for (const client of clients) {
+        const clientId = client._id.toString();
+        const uploadDir = path.join(__dirname, 'uploads', clientId);
+        const kbDir = path.join(__dirname, 'knowledge_base', clientId);
+
+        if (fs.existsSync(uploadDir)) {
+            if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
+            const files = fs.readdirSync(uploadDir);
+            for (const file of files) {
+                const src = path.join(uploadDir, file);
+                const dest = path.join(kbDir, file);
+                if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+            }
+        }
+    }
+    await rag.init();
+}
+syncKnowledgeBase();
 
 app.use(cors());
 app.use(express.json());
