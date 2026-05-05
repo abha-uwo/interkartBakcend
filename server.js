@@ -28,12 +28,25 @@ async function syncKnowledgeBase() {
 
         if (fs.existsSync(uploadDir)) {
             if (!fs.existsSync(kbDir)) fs.mkdirSync(kbDir, { recursive: true });
+            
+            // 1. Sync from client-specific upload folder
             const files = fs.readdirSync(uploadDir);
             for (const file of files) {
                 const src = path.join(uploadDir, file);
                 const dest = path.join(kbDir, file);
                 if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
             }
+
+            // 2. Also check root uploads folder for this client's documents
+            const rootUploads = path.join(__dirname, 'uploads');
+            client.documents.forEach(docName => {
+                const rootSrc = path.join(rootUploads, docName);
+                const dest = path.join(kbDir, docName);
+                if (fs.existsSync(rootSrc) && !fs.existsSync(dest)) {
+                    console.log(`✨ Found document ${docName} in root uploads. Syncing...`);
+                    fs.copyFileSync(rootSrc, dest);
+                }
+            });
         }
     }
     await rag.init();

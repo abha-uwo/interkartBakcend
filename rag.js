@@ -21,10 +21,11 @@ class SimpleRAG {
         const clientFolders = fs.readdirSync(this.baseKbPath).filter(f => fs.lstatSync(path.join(this.baseKbPath, f)).isDirectory());
         
         for (const clientId of clientFolders) {
+            console.log(`[RAG] 📁 Found knowledge folder for client: ${clientId}`);
             await this.loadClientKnowledge(clientId);
         }
         
-        console.log(`[RAG] Initialized for ${Object.keys(this.clientChunks).length} clients.`);
+        console.log(`[RAG] ✅ Initialization complete. Active clients: ${Object.keys(this.clientChunks).length}`);
     }
 
     async extractTextFromFile(filePath) {
@@ -59,25 +60,36 @@ class SimpleRAG {
         const files = fs.readdirSync(clientPath).filter(f => supportedExts.includes(path.extname(f).toLowerCase()));
         this.clientChunks[clientId] = [];
 
+        console.log(`[RAG] 📂 Client ${clientId}: Found ${files.length} supported files.`);
+
         let allText = '';
         for (const file of files) {
+            console.log(`[RAG] 📄 Extracting text from: ${file}...`);
             const content = await this.extractTextFromFile(path.join(clientPath, file));
+            console.log(`[RAG] ℹ️ Extracted ${content.length} characters from ${file}`);
             allText += content + '\n\n';
         }
 
-        if (allText.trim().length === 0) return;
+        if (allText.trim().length === 0) {
+            console.log(`[RAG] ⚠️ No text found in any documents for client ${clientId}`);
+            return;
+        }
 
-        const rawChunks = this.chunkText(allText, 500);
+        const rawChunks = this.chunkText(allText, 800);
+        console.log(`[RAG] ✂️ Split text into ${rawChunks.length} chunks.`);
         
-        for (const chunk of rawChunks) {
+        for (let i = 0; i < rawChunks.length; i++) {
+            const chunk = rawChunks[i];
             if (chunk.trim().length === 0) continue;
             try {
+                process.stdout.write(`[RAG] 🧠 Generating embedding ${i+1}/${rawChunks.length}... \r`);
                 const embedding = await this.getEmbedding(chunk);
                 this.clientChunks[clientId].push({ text: chunk, embedding });
             } catch (err) {
-                console.error(`[RAG] Error generating embedding for client ${clientId}:`, err.message);
+                console.error(`\n[RAG] ❌ Embedding Error for client ${clientId} (Chunk ${i}):`, err.message);
             }
         }
+        console.log(`\n[RAG] ✨ Client ${clientId} is ready with ${this.clientChunks[clientId].length} vector chunks.`);
     }
 
     chunkText(text, maxChars) {
